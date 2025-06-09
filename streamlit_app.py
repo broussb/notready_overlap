@@ -221,131 +221,138 @@ if uploaded_file is not None:
             
             with tab5:
                 # Time pattern analysis
-                # Extract hour and day of week
-                filtered_df['Hour'] = filtered_df['Overlap Start'].dt.hour
-                filtered_df['Day of Week'] = filtered_df['Overlap Start'].dt.day_name()
-                filtered_df['Day Number'] = filtered_df['Overlap Start'].dt.dayofweek
-                
-                # Create two columns for the visualizations
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Hourly distribution
-                    hourly_stats = filtered_df.groupby('Hour').agg({
-                        'Duration (seconds)': ['count', 'sum']
-                    }).reset_index()
-                    hourly_stats.columns = ['Hour', 'Count', 'Total Seconds']
-                    hourly_stats['Total Minutes'] = hourly_stats['Total Seconds'] / 60
+                if len(filtered_df) > 0:
+                    # Extract hour and day of week
+                    filtered_df['Hour'] = filtered_df['Overlap Start'].dt.hour
+                    filtered_df['Day of Week'] = filtered_df['Overlap Start'].dt.day_name()
+                    filtered_df['Day Number'] = filtered_df['Overlap Start'].dt.dayofweek
                     
-                    fig_hour = go.Figure()
-                    fig_hour.add_trace(go.Bar(
-                        x=hourly_stats['Hour'],
-                        y=hourly_stats['Count'],
-                        name='Number of Overlaps',
-                        yaxis='y',
-                        offsetgroup=1
-                    ))
-                    fig_hour.add_trace(go.Scatter(
-                        x=hourly_stats['Hour'],
-                        y=hourly_stats['Total Minutes'],
-                        name='Total Minutes',
-                        yaxis='y2',
-                        line=dict(color='red', width=3)
-                    ))
+                    # Create two columns for the visualizations
+                    col1, col2 = st.columns(2)
                     
-                    fig_hour.update_layout(
-                        title='Overlaps by Hour of Day',
-                        xaxis=dict(title='Hour of Day', dtick=1),
-                        yaxis=dict(title='Number of Overlaps', side='left'),
-                        yaxis2=dict(title='Total Minutes', overlaying='y', side='right'),
-                        hovermode='x unified',
-                        height=400
+                    with col1:
+                        # Hourly distribution
+                        hourly_stats = filtered_df.groupby('Hour').agg({
+                            'Duration (seconds)': ['count', 'sum']
+                        }).reset_index()
+                        hourly_stats.columns = ['Hour', 'Count', 'Total Seconds']
+                        hourly_stats['Total Minutes'] = hourly_stats['Total Seconds'] / 60
+                        
+                        fig_hour = go.Figure()
+                        fig_hour.add_trace(go.Bar(
+                            x=hourly_stats['Hour'],
+                            y=hourly_stats['Count'],
+                            name='Number of Overlaps',
+                            yaxis='y',
+                            offsetgroup=1
+                        ))
+                        fig_hour.add_trace(go.Scatter(
+                            x=hourly_stats['Hour'],
+                            y=hourly_stats['Total Minutes'],
+                            name='Total Minutes',
+                            yaxis='y2',
+                            line=dict(color='red', width=3)
+                        ))
+                        
+                        fig_hour.update_layout(
+                            title='Overlaps by Hour of Day',
+                            xaxis=dict(title='Hour of Day', dtick=1),
+                            yaxis=dict(title='Number of Overlaps', side='left'),
+                            yaxis2=dict(title='Total Minutes', overlaying='y', side='right'),
+                            hovermode='x unified',
+                            height=400
+                        )
+                        st.plotly_chart(fig_hour, use_container_width=True)
+                    
+                    with col2:
+                        # Day of week distribution
+                        day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                        daily_stats = filtered_df.groupby(['Day of Week', 'Day Number']).agg({
+                            'Duration (seconds)': ['count', 'sum']
+                        }).reset_index()
+                        daily_stats.columns = ['Day of Week', 'Day Number', 'Count', 'Total Seconds']
+                        daily_stats['Total Minutes'] = daily_stats['Total Seconds'] / 60
+                        daily_stats = daily_stats.sort_values('Day Number')
+                        
+                        fig_day = go.Figure()
+                        fig_day.add_trace(go.Bar(
+                            x=daily_stats['Day of Week'],
+                            y=daily_stats['Count'],
+                            name='Number of Overlaps',
+                            text=daily_stats['Count'],
+                            textposition='auto',
+                        ))
+                        
+                        fig_day.update_layout(
+                            title='Overlaps by Day of Week',
+                            xaxis=dict(title='Day of Week', categoryorder='array', categoryarray=day_order),
+                            yaxis=dict(title='Number of Overlaps'),
+                            height=400
+                        )
+                        st.plotly_chart(fig_day, use_container_width=True)
+                    
+                    # Heatmap of hour vs day of week
+                    st.subheader("Overlap Intensity Heatmap")
+                    
+                    # Create pivot table for heatmap
+                    heatmap_data = filtered_df.groupby(['Day Number', 'Day of Week', 'Hour'])['Duration (seconds)'].count().reset_index()
+                    heatmap_data.columns = ['Day Number', 'Day of Week', 'Hour', 'Count']
+                    
+                    # Create complete grid (all hours and days)
+                    all_hours = list(range(24))
+                    all_days = [(i, day) for i, day in enumerate(day_order)]
+                    
+                    # Create pivot table
+                    pivot_data = pd.DataFrame(index=[d[1] for d in all_days], columns=all_hours)
+                    for _, row in heatmap_data.iterrows():
+                        pivot_data.loc[row['Day of Week'], row['Hour']] = row['Count']
+                    pivot_data = pivot_data.fillna(0)
+                    
+                    fig_heatmap = px.imshow(
+                        pivot_data.values,
+                        labels=dict(x="Hour of Day", y="Day of Week", color="Number of Overlaps"),
+                        x=all_hours,
+                        y=day_order,
+                        color_continuous_scale="YlOrRd",
+                        aspect="auto",
+                        title="Overlap Frequency by Day and Hour"
                     )
-                    st.plotly_chart(fig_hour, use_container_width=True)
-                
-                with col2:
-                    # Day of week distribution
-                    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                    daily_stats = filtered_df.groupby(['Day of Week', 'Day Number']).agg({
-                        'Duration (seconds)': ['count', 'sum']
-                    }).reset_index()
-                    daily_stats.columns = ['Day of Week', 'Day Number', 'Count', 'Total Seconds']
-                    daily_stats['Total Minutes'] = daily_stats['Total Seconds'] / 60
-                    daily_stats = daily_stats.sort_values('Day Number')
                     
-                    fig_day = go.Figure()
-                    fig_day.add_trace(go.Bar(
-                        x=daily_stats['Day of Week'],
-                        y=daily_stats['Count'],
-                        name='Number of Overlaps',
-                        text=daily_stats['Count'],
-                        textposition='auto',
-                    ))
+                    fig_heatmap.update_xaxes(dtick=1)
+                    fig_heatmap.update_layout(height=400)
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
                     
-                    fig_day.update_layout(
-                        title='Overlaps by Day of Week',
-                        xaxis=dict(title='Day of Week', categoryorder='array', categoryarray=day_order),
-                        yaxis=dict(title='Number of Overlaps'),
-                        height=400
-                    )
-                    st.plotly_chart(fig_day, use_container_width=True)
-                
-                # Heatmap of hour vs day of week
-                st.subheader("Overlap Intensity Heatmap")
-                
-                # Create pivot table for heatmap
-                heatmap_data = filtered_df.groupby(['Day Number', 'Day of Week', 'Hour'])['Duration (seconds)'].count().reset_index()
-                heatmap_data.columns = ['Day Number', 'Day of Week', 'Hour', 'Count']
-                
-                # Create complete grid (all hours and days)
-                all_hours = list(range(24))
-                all_days = [(i, day) for i, day in enumerate(day_order)]
-                
-                # Create pivot table
-                pivot_data = pd.DataFrame(index=[d[1] for d in all_days], columns=all_hours)
-                for _, row in heatmap_data.iterrows():
-                    pivot_data.loc[row['Day of Week'], row['Hour']] = row['Count']
-                pivot_data = pivot_data.fillna(0)
-                
-                fig_heatmap = px.imshow(
-                    pivot_data.values,
-                    labels=dict(x="Hour of Day", y="Day of Week", color="Number of Overlaps"),
-                    x=all_hours,
-                    y=day_order,
-                    color_continuous_scale="YlOrRd",
-                    aspect="auto",
-                    title="Overlap Frequency by Day and Hour"
-                )
-                
-                fig_heatmap.update_xaxis(dtick=1)
-                fig_heatmap.update_layout(height=400)
-                st.plotly_chart(fig_heatmap, use_container_width=True)
-                
-                # Peak times summary
-                st.subheader("Peak Overlap Times")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Top 5 busiest hours
-                    top_hours = hourly_stats.nlargest(5, 'Count')[['Hour', 'Count', 'Total Minutes']]
-                    top_hours['Time'] = top_hours['Hour'].apply(lambda h: f"{h:02d}:00 - {h:02d}:59")
-                    st.markdown("**Top 5 Busiest Hours:**")
-                    for _, row in top_hours.iterrows():
-                        st.markdown(f"• {row['Time']}: {row['Count']} overlaps ({row['Total Minutes']:.0f} min)")
-                
-                with col2:
-                    # Average by day type
-                    filtered_df['Is Weekend'] = filtered_df['Day Number'].isin([5, 6])
-                    weekend_stats = filtered_df.groupby('Is Weekend')['Duration (seconds)'].agg(['count', 'mean'])
+                    # Peak times summary
+                    st.subheader("Peak Overlap Times")
+                    col1, col2 = st.columns(2)
                     
-                    st.markdown("**Weekday vs Weekend:**")
-                    weekday_count = weekend_stats.loc[False, 'count'] if False in weekend_stats.index else 0
-                    weekend_count = weekend_stats.loc[True, 'count'] if True in weekend_stats.index else 0
-                    weekday_avg = weekend_stats.loc[False, 'mean'] / 60 if False in weekend_stats.index else 0
-                    weekend_avg = weekend_stats.loc[True, 'mean'] / 60 if True in weekend_stats.index else 0
+                    with col1:
+                        # Top 5 busiest hours
+                        if len(hourly_stats) > 0:
+                            top_hours = hourly_stats.nlargest(min(5, len(hourly_stats)), 'Count')[['Hour', 'Count', 'Total Minutes']]
+                            top_hours['Time'] = top_hours['Hour'].apply(lambda h: f"{h:02d}:00 - {h:02d}:59")
+                            st.markdown("**Top 5 Busiest Hours:**")
+                            for _, row in top_hours.iterrows():
+                                st.markdown(f"• {row['Time']}: {row['Count']} overlaps ({row['Total Minutes']:.0f} min)")
+                        else:
+                            st.markdown("**Top 5 Busiest Hours:**")
+                            st.markdown("No data available")
                     
-                    st.markdown(f"• Weekdays: {weekday_count} overlaps (avg {weekday_avg:.1f} min)")
-                    st.markdown(f"• Weekends: {weekend_count} overlaps (avg {weekend_avg:.1f} min)")
+                    with col2:
+                        # Average by day type
+                        filtered_df['Is Weekend'] = filtered_df['Day Number'].isin([5, 6])
+                        weekend_stats = filtered_df.groupby('Is Weekend')['Duration (seconds)'].agg(['count', 'mean'])
+                        
+                        st.markdown("**Weekday vs Weekend:**")
+                        weekday_count = weekend_stats.loc[False, 'count'] if False in weekend_stats.index else 0
+                        weekend_count = weekend_stats.loc[True, 'count'] if True in weekend_stats.index else 0
+                        weekday_avg = weekend_stats.loc[False, 'mean'] / 60 if False in weekend_stats.index else 0
+                        weekend_avg = weekend_stats.loc[True, 'mean'] / 60 if True in weekend_stats.index else 0
+                        
+                        st.markdown(f"• Weekdays: {weekday_count} overlaps (avg {weekday_avg:.1f} min)")
+                        st.markdown(f"• Weekends: {weekend_count} overlaps (avg {weekend_avg:.1f} min)")
+                else:
+                    st.info("No data available for time pattern analysis after applying filters.")
             
             # Detailed table
             st.header("Overlap Table")
