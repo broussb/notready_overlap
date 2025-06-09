@@ -27,7 +27,7 @@ if uploaded_file is not None:
     with col1:
         st.metric("Total Records", len(df))
     with col2:
-        st.metric("Unique Agents", df['AGENT ID'].nunique())
+        st.metric("Unique Agents", df['AGENT'].nunique())
     with col3:
         st.metric("Not Ready Records", len(df[df['STATE'] == 'Not Ready']))
     
@@ -62,7 +62,7 @@ if uploaded_file is not None:
                     rec2 = records[j]
                     
                     # Skip if same agent
-                    if rec1['AGENT ID'] == rec2['AGENT ID']:
+                    if rec1['AGENT'] == rec2['AGENT']:
                         continue
                     
                     # Check overlap
@@ -73,8 +73,8 @@ if uploaded_file is not None:
                         overlap_duration = (overlap_end - overlap_start).total_seconds()
                         
                         overlaps.append({
-                            'Agent 1': rec1['AGENT ID'],
-                            'Agent 2': rec2['AGENT ID'],
+                            'Agent 1': rec1['AGENT'],
+                            'Agent 2': rec2['AGENT'],
                             'Overlap Start': overlap_start,
                             'Overlap End': overlap_end,
                             'Duration (seconds)': overlap_duration,
@@ -187,7 +187,7 @@ if uploaded_file is not None:
                         (filtered_df['Agent 2'] == agent)
                     ]
                     agent_stats.append({
-                        'Agent ID': agent,
+                        'AGENT': agent,
                         'Number of Overlaps': len(agent_overlaps),
                         'Total Overlap Time (minutes)': agent_overlaps['Duration (seconds)'].sum() / 60
                     })
@@ -195,7 +195,7 @@ if uploaded_file is not None:
                 agent_stats_df = pd.DataFrame(agent_stats).sort_values('Total Overlap Time (minutes)', ascending=False)
                 
                 fig = px.bar(agent_stats_df, 
-                            x='Agent ID', 
+                            x='AGENT', 
                             y='Total Overlap Time (minutes)',
                             title="Total Overlap Time by Agent",
                             text='Number of Overlaps')
@@ -392,7 +392,7 @@ else:
     - STATE
     - REASON CODE
     - AGENT STATE TIME (format: HH:MM:SS)
-    - AGENT ID
+    - AGENT
     
     ### What this tool analyzes:
     - Simultaneous "Not Ready" states between different agents
