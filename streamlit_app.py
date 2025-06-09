@@ -12,7 +12,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("👥 Agent Not Ready Overlap Analyzer")
+st.title("Agent Not Ready Overlap Analyzer")
 st.markdown("Upload your agent state CSV file to analyze overlapping 'Not Ready' periods between agents.")
 
 # File upload
@@ -88,7 +88,7 @@ if uploaded_file is not None:
             overlap_df = pd.DataFrame(overlaps)
             
             # Summary metrics
-            st.header("📊 Overlap Summary")
+            st.header("Overlap Summary")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Total Overlaps", len(overlap_df))
@@ -148,7 +148,7 @@ if uploaded_file is not None:
                 ]
             
             # Visualizations
-            st.header("📈 Visualizations")
+            st.header("Visualizations")
             
             tab1, tab2, tab3, tab4 = st.tabs(["Timeline", "Heatmap", "By Agent", "By Reason"])
             
@@ -220,7 +220,7 @@ if uploaded_file is not None:
                 st.plotly_chart(fig, use_container_width=True)
             
             # Detailed table
-            st.header("📋 Detailed Overlap Table")
+            st.header("Overlap Table")
             
             # Format the display dataframe
             display_df = filtered_df[[
@@ -240,9 +240,9 @@ if uploaded_file is not None:
             )
             
         else:
-            st.info("✅ No overlapping 'Not Ready' periods found between agents.")
+            st.info("No overlapping 'Not Ready' periods found between agents.")
     else:
-        st.warning("⚠️ No 'Not Ready' states found in the uploaded file.")
+        st.warning("⚠No 'Not Ready' states found in the uploaded file.")
         
 else:
     # Instructions when no file is uploaded
@@ -250,15 +250,11 @@ else:
     ### 📤 How to use this tool:
     
     1. **Upload your CSV file** containing agent state data
-    2. The app will automatically find all overlapping "Not Ready" periods
-    3. Use filters to focus on specific agents, dates, or minimum durations
-    4. Explore visualizations to identify patterns
-    5. Download the detailed overlap report
     
     ### 📊 Required CSV columns:
     - DATE (format: YYYY/MM/DD)
     - TIME (format: HH:MM:SS)
-    - STATE (should include "Not Ready" values)
+    - STATE
     - REASON CODE
     - AGENT STATE TIME (format: HH:MM:SS)
     - AGENT ID
@@ -268,29 +264,3 @@ else:
     - Duration and frequency of overlaps
     - Patterns by agent, time, and reason codes
     """)
-    
-    # Sample data generator for testing
-    if st.button("Generate Sample Data"):
-        sample_data = {
-            'DATE': ['2025/06/01'] * 10,
-            'TIME': ['08:00:00', '08:00:30', '08:01:00', '08:01:15', '08:02:00', 
-                     '08:02:30', '08:03:00', '08:03:30', '08:04:00', '08:04:30'],
-            'STATE': ['Not Ready'] * 10,
-            'REASON CODE': ['Break', 'Meeting', 'Break', 'Training', 'Meeting',
-                           'Break', 'System', 'Meeting', 'Break', 'Training'],
-            'MEDIA AVAILABILITY': [None] * 10,
-            'SKILL AVAILABILITY': [None] * 10,
-            'AGENT STATE TIME': ['00:02:00', '00:03:00', '00:01:30', '00:02:30', '00:04:00',
-                                '00:01:00', '00:02:00', '00:03:30', '00:01:30', '00:02:00'],
-            'AGENT STATES': [1] * 10,
-            'CALLS UNANSWERED BY AGENT': [None] * 10,
-            'AGENT ID': [1001, 1002, 1003, 1004, 1001, 1002, 1003, 1004, 1001, 1002]
-        }
-        sample_df = pd.DataFrame(sample_data)
-        csv = sample_df.to_csv(index=False)
-        st.download_button(
-            label="Download Sample CSV",
-            data=csv,
-            file_name="sample_agent_data.csv",
-            mime="text/csv"
-        )
