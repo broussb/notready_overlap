@@ -103,7 +103,7 @@ if uploaded_file is not None:
                          f"{int(overlap_df['Duration (seconds)'].max()//60)}m {int(overlap_df['Duration (seconds)'].max()%60)}s")
             
             # Filters
-            st.header("🔍 Filter Options")
+            st.header("Filter Options")
             col1, col2, col3 = st.columns(3)
             
             with col1:
