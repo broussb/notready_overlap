@@ -7,13 +7,25 @@ import plotly.graph_objects as go
 from io import StringIO
 
 st.set_page_config(
-    page_title="Agent Not Ready Overlap Analyzer",
-    page_icon="👥",
+    page_title="Agent Lunch Overlap ",
+    page_icon="🍽️",
     layout="wide"
 )
 
-st.title("Agent Not Ready Overlap Analyzer")
-st.markdown("Upload your agent state CSV file to analyze overlapping 'Not Ready' periods between agents.")
+st.title("Agent Lunch Overlap ")
+st.markdown("Upload your agent state CSV file to analyze overlapping periods when at least one agent is on lunch.")
+
+# Lunch-related reason codes (customizable)
+st.sidebar.header("Lunch Configuration")
+default_lunch_codes = ["Lunch"]
+lunch_codes = st.sidebar.text_area(
+    "Lunch Reason Codes (one per line)",
+    value="\n".join(default_lunch_codes),
+    help="Enter the reason codes that indicate lunch/meal breaks"
+).strip().split('\n')
+lunch_codes = [code.strip() for code in lunch_codes if code.strip()]
+
+st.sidebar.markdown(f"**Current lunch codes:** {', '.join(lunch_codes)}")
 
 # File upload
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
@@ -23,13 +35,16 @@ if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     
     # Show basic info
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Records", len(df))
     with col2:
         st.metric("Unique Agents", df['AGENT'].nunique())
     with col3:
         st.metric("Not Ready Records", len(df[df['STATE'] == 'Not Ready']))
+    with col4:
+        lunch_records = len(df[df['REASON CODE'].isin(lunch_codes)])
+        st.metric("Lunch Records", lunch_records)
     
     # Process Not Ready states
     not_ready_df = df[df['STATE'] == 'Not Ready'].copy()
@@ -51,11 +66,14 @@ if uploaded_file is not None:
         not_ready_df['duration_seconds'] = not_ready_df['AGENT STATE TIME'].apply(parse_duration)
         not_ready_df['end_datetime'] = not_ready_df['start_datetime'] + pd.to_timedelta(not_ready_df['duration_seconds'], unit='s')
         
-        # Find overlaps
+        # Mark lunch records
+        not_ready_df['is_lunch'] = not_ready_df['REASON CODE'].isin(lunch_codes)
+        
+        # Find overlaps where at least one agent is on lunch
         overlaps = []
         records = not_ready_df.to_dict('records')
         
-        with st.spinner('Finding overlaps...'):
+        with st.spinner('Finding lunch-related overlaps...'):
             for i in range(len(records)):
                 for j in range(i + 1, len(records)):
                     rec1 = records[i]
@@ -65,12 +83,24 @@ if uploaded_file is not None:
                     if rec1['AGENT'] == rec2['AGENT']:
                         continue
                     
+                    # Check if at least one agent is on lunch
+                    if not (rec1['is_lunch'] or rec2['is_lunch']):
+                        continue
+                    
                     # Check overlap
                     overlap_start = max(rec1['start_datetime'], rec2['start_datetime'])
                     overlap_end = min(rec1['end_datetime'], rec2['end_datetime'])
                     
                     if overlap_start < overlap_end:
                         overlap_duration = (overlap_end - overlap_start).total_seconds()
+                        
+                        # Determine overlap type
+                        if rec1['is_lunch'] and rec2['is_lunch']:
+                            overlap_type = "Both on Lunch"
+                        elif rec1['is_lunch']:
+                            overlap_type = f"{rec1['AGENT']} on Lunch"
+                        else:
+                            overlap_type = f"{rec2['AGENT']} on Lunch"
                         
                         overlaps.append({
                             'Agent 1': rec1['AGENT'],
@@ -81,17 +111,21 @@ if uploaded_file is not None:
                             'Duration (formatted)': f"{int(overlap_duration//3600)}h {int((overlap_duration%3600)//60)}m {int(overlap_duration%60)}s",
                             'Agent 1 Reason': rec1['REASON CODE'],
                             'Agent 2 Reason': rec2['REASON CODE'],
-                            'Date': overlap_start.date()
+                            'Agent 1 On Lunch': rec1['is_lunch'],
+                            'Agent 2 On Lunch': rec2['is_lunch'],
+                            'Overlap Type': overlap_type,
+                            'Date': overlap_start.date(),
+                            'Hour': overlap_start.hour
                         })
         
         if overlaps:
             overlap_df = pd.DataFrame(overlaps)
             
             # Summary metrics
-            st.header("Overlap Summary")
+            st.header("Lunch Overlap Summary")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Overlaps", len(overlap_df))
+                st.metric("Total Lunch Overlaps", len(overlap_df))
             with col2:
                 st.metric("Total Overlap Time", 
                          f"{int(overlap_df['Duration (seconds)'].sum()//3600)}h {int((overlap_df['Duration (seconds)'].sum()%3600)//60)}m")
@@ -99,12 +133,31 @@ if uploaded_file is not None:
                 st.metric("Average Overlap", 
                          f"{int(overlap_df['Duration (seconds)'].mean()//60)}m {int(overlap_df['Duration (seconds)'].mean()%60)}s")
             with col4:
-                st.metric("Max Overlap", 
-                         f"{int(overlap_df['Duration (seconds)'].max()//60)}m {int(overlap_df['Duration (seconds)'].max()%60)}s")
+                both_lunch = len(overlap_df[overlap_df['Overlap Type'] == 'Both on Lunch'])
+                st.metric("Both on Lunch", both_lunch)
+            
+            # Overlap type breakdown
+            st.subheader("Overlap Type Distribution")
+            overlap_type_counts = overlap_df['Overlap Type'].value_counts()
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                fig_pie = px.pie(
+                    values=overlap_type_counts.values,
+                    names=overlap_type_counts.index,
+                    title="Distribution of Lunch Overlap Types"
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            with col2:
+                st.markdown("**Breakdown:**")
+                for overlap_type, count in overlap_type_counts.items():
+                    percentage = (count / len(overlap_df)) * 100
+                    st.markdown(f"• {overlap_type}: {count} ({percentage:.1f}%)")
             
             # Filters
             st.header("Filter Options")
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 selected_agents = st.multiselect(
@@ -114,6 +167,13 @@ if uploaded_file is not None:
                 )
             
             with col2:
+                overlap_types = st.multiselect(
+                    "Filter by Overlap Type",
+                    options=overlap_df['Overlap Type'].unique(),
+                    default=overlap_df['Overlap Type'].unique()
+                )
+            
+            with col3:
                 min_duration = st.number_input(
                     "Minimum Duration (seconds)",
                     min_value=0,
@@ -121,7 +181,7 @@ if uploaded_file is not None:
                     step=30
                 )
             
-            with col3:
+            with col4:
                 date_range = st.date_input(
                     "Date Range",
                     value=(overlap_df['Date'].min(), overlap_df['Date'].max()),
@@ -138,6 +198,9 @@ if uploaded_file is not None:
                     (filtered_df['Agent 2'].isin(selected_agents))
                 ]
             
+            if overlap_types:
+                filtered_df = filtered_df[filtered_df['Overlap Type'].isin(overlap_types)]
+            
             if min_duration > 0:
                 filtered_df = filtered_df[filtered_df['Duration (seconds)'] >= min_duration]
             
@@ -148,36 +211,50 @@ if uploaded_file is not None:
                 ]
             
             # Visualizations
-            st.header("Visualizations")
+            st.header("Lunch Overlap")
             
-            tab1, tab2, tab3, tab4, tab5 = st.tabs(["Timeline", "Heatmap", "By Agent", "By Reason", "Time Patterns"])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["Timeline", "Lunch Schedule", "Agent Impact", "Lunch Patterns", "Coverage Analysis"])
             
             with tab1:
-                # Timeline visualization
+                # Timeline visualization with lunch focus
                 fig = px.scatter(filtered_df, 
                                x='Overlap Start', 
                                y='Duration (seconds)',
-                               color='Agent 1',
+                               color='Overlap Type',
                                size='Duration (seconds)',
-                               hover_data=['Agent 2', 'Agent 1 Reason', 'Agent 2 Reason', 'Duration (formatted)'],
-                               title="Overlap Timeline")
+                               hover_data=['Agent 1', 'Agent 2', 'Agent 1 Reason', 'Agent 2 Reason', 'Duration (formatted)'],
+                               title="Lunch Overlap Timeline")
                 fig.update_layout(height=500)
                 st.plotly_chart(fig, use_container_width=True)
             
             with tab2:
-                # Agent pair heatmap
-                agent_pairs = filtered_df.groupby(['Agent 1', 'Agent 2'])['Duration (seconds)'].sum().reset_index()
-                pivot_table = agent_pairs.pivot(index='Agent 1', columns='Agent 2', values='Duration (seconds)').fillna(0)
+                # Lunch schedule heatmap
+                st.subheader("Lunch Time Patterns")
                 
-                fig = px.imshow(pivot_table/60,  # Convert to minutes
-                               labels=dict(color="Total Overlap (minutes)"),
-                               title="Agent Pair Overlap Heatmap",
-                               color_continuous_scale="Blues")
-                fig.update_layout(height=500)
-                st.plotly_chart(fig, use_container_width=True)
+                # Create lunch schedule data
+                lunch_schedule = filtered_df.groupby(['Hour', 'Overlap Type'])['Duration (seconds)'].count().reset_index()
+                lunch_schedule['Duration (minutes)'] = lunch_schedule['Duration (seconds)'] / 60
+                
+                fig_schedule = px.bar(lunch_schedule,
+                                    x='Hour',
+                                    y='Duration (seconds)',
+                                    color='Overlap Type',
+                                    title="Lunch Overlaps by Hour of Day",
+                                    labels={'Duration (seconds)': 'Number of Overlaps'})
+                fig_schedule.update_xaxes(dtick=1, title="Hour of Day")
+                fig_schedule.update_layout(height=400)
+                st.plotly_chart(fig_schedule, use_container_width=True)
+                
+                # Peak lunch times
+                peak_hours = filtered_df.groupby('Hour')['Duration (seconds)'].count().sort_values(ascending=False).head(5)
+                st.subheader("Peak Lunch Overlap Hours")
+                for hour, count in peak_hours.items():
+                    st.markdown(f"• **{hour:02d}:00 - {hour:02d}:59**: {count} overlaps")
             
             with tab3:
-                # By agent analysis
+                # Agent impact analysis
+                st.subheader("Agent Lunch Impact")
+                
                 agent_stats = []
                 all_agents = set(filtered_df['Agent 1'].unique()) | set(filtered_df['Agent 2'].unique())
                 
@@ -186,203 +263,196 @@ if uploaded_file is not None:
                         (filtered_df['Agent 1'] == agent) | 
                         (filtered_df['Agent 2'] == agent)
                     ]
+                    
+                    # Count overlaps where this agent is on lunch
+                    agent_on_lunch = len(agent_overlaps[
+                        ((filtered_df['Agent 1'] == agent) & (filtered_df['Agent 1 On Lunch'])) |
+                        ((filtered_df['Agent 2'] == agent) & (filtered_df['Agent 2 On Lunch']))
+                    ])
+                    
+                    # Count overlaps where this agent is NOT on lunch (but someone else is)
+                    agent_not_on_lunch = len(agent_overlaps) - agent_on_lunch
+                    
                     agent_stats.append({
-                        'AGENT': agent,
-                        'Number of Overlaps': len(agent_overlaps),
-                        'Total Overlap Time (minutes)': agent_overlaps['Duration (seconds)'].sum() / 60
+                        'Agent': agent,
+                        'Total Overlaps': len(agent_overlaps),
+                        'Agent on Lunch': agent_on_lunch,
+                        'Agent Working (Other on Lunch)': agent_not_on_lunch,
+                        'Total Overlap Time (minutes)': agent_overlaps['Duration (seconds)'].sum() / 60,
+                        'Avg Overlap Duration (minutes)': agent_overlaps['Duration (seconds)'].mean() / 60 if len(agent_overlaps) > 0 else 0
                     })
                 
                 agent_stats_df = pd.DataFrame(agent_stats).sort_values('Total Overlap Time (minutes)', ascending=False)
                 
-                fig = px.bar(agent_stats_df, 
-                            x='AGENT', 
-                            y='Total Overlap Time (minutes)',
-                            title="Total Overlap Time by Agent",
-                            text='Number of Overlaps')
-                fig.update_traces(texttemplate='%{text}', textposition='outside')
-                fig.update_layout(height=500)
-                st.plotly_chart(fig, use_container_width=True)
+                # Stacked bar chart
+                fig_agent = go.Figure()
+                fig_agent.add_trace(go.Bar(
+                    name='Agent on Lunch',
+                    x=agent_stats_df['Agent'],
+                    y=agent_stats_df['Agent on Lunch'],
+                    marker_color='lightcoral'
+                ))
+                fig_agent.add_trace(go.Bar(
+                    name='Agent Working (Other on Lunch)',
+                    x=agent_stats_df['Agent'],
+                    y=agent_stats_df['Agent Working (Other on Lunch)'],
+                    marker_color='lightblue'
+                ))
+                
+                fig_agent.update_layout(
+                    title='Agent Involvement in Lunch Overlaps',
+                    xaxis_title='Agent',
+                    yaxis_title='Number of Overlaps',
+                    barmode='stack',
+                    height=500
+                )
+                st.plotly_chart(fig_agent, use_container_width=True)
+                
+                # Agent stats table
+                st.subheader("Agent Statistics")
+                display_agent_stats = agent_stats_df.round(1)
+                st.dataframe(display_agent_stats, use_container_width=True, hide_index=True)
             
             with tab4:
-                # By reason analysis
-                reason_stats = filtered_df.groupby(['Agent 1 Reason', 'Agent 2 Reason'])['Duration (seconds)'].agg(['count', 'sum']).reset_index()
-                reason_stats['Total Minutes'] = reason_stats['sum'] / 60
-                reason_stats = reason_stats.sort_values('Total Minutes', ascending=False).head(15)
+                # Lunch pattern analysis
+                st.subheader("Lunch Pattern")
                 
-                fig = px.bar(reason_stats, 
-                            x='Total Minutes', 
-                            y=reason_stats['Agent 1 Reason'] + ' / ' + reason_stats['Agent 2 Reason'],
-                            orientation='h',
-                            title="Top 15 Reason Code Combinations",
-                            text='count')
-                fig.update_traces(texttemplate='%{text} overlaps', textposition='outside')
-                fig.update_layout(height=600, yaxis_title="Reason Code Combinations")
-                st.plotly_chart(fig, use_container_width=True)
+                # Day of week patterns
+                filtered_df['Day of Week'] = filtered_df['Overlap Start'].dt.day_name()
+                filtered_df['Day Number'] = filtered_df['Overlap Start'].dt.dayofweek
+                
+                day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                daily_stats = filtered_df.groupby(['Day of Week', 'Day Number']).agg({
+                    'Duration (seconds)': ['count', 'sum']
+                }).reset_index()
+                daily_stats.columns = ['Day of Week', 'Day Number', 'Count', 'Total Seconds']
+                daily_stats['Total Minutes'] = daily_stats['Total Seconds'] / 60
+                daily_stats = daily_stats.sort_values('Day Number')
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    fig_day = px.bar(daily_stats,
+                                   x='Day of Week',
+                                   y='Count',
+                                   title='Lunch Overlaps by Day of Week',
+                                   color='Count',
+                                   color_continuous_scale='Blues')
+                    fig_day.update_xaxes(categoryorder='array', categoryarray=day_order)
+                    st.plotly_chart(fig_day, use_container_width=True)
+                
+                with col2:
+                    # Lunch duration analysis
+                    duration_stats = filtered_df.groupby('Overlap Type')['Duration (seconds)'].agg(['mean', 'median', 'std']).reset_index()
+                    duration_stats.columns = ['Overlap Type', 'Mean (sec)', 'Median (sec)', 'Std Dev (sec)']
+                    duration_stats['Mean (min)'] = duration_stats['Mean (sec)'] / 60
+                    duration_stats['Median (min)'] = duration_stats['Median (sec)'] / 60
+                    
+                    fig_duration = px.bar(duration_stats,
+                                        x='Overlap Type',
+                                        y='Mean (min)',
+                                        title='Average Overlap Duration by Type',
+                                        color='Mean (min)',
+                                        color_continuous_scale='Reds')
+                    st.plotly_chart(fig_duration, use_container_width=True)
+                
+                # Time distribution
+                st.subheader("Lunch Time Distribution")
+                time_bins = pd.cut(filtered_df['Hour'], bins=range(0, 25, 2), right=False, labels=[f"{i:02d}-{i+1:02d}" for i in range(0, 24, 2)])
+                time_dist = time_bins.value_counts().sort_index()
+                
+                fig_time_dist = px.bar(x=time_dist.index, y=time_dist.values,
+                                     title="Lunch Overlap Distribution by Time Period",
+                                     labels={'x': 'Time Period', 'y': 'Number of Overlaps'})
+                st.plotly_chart(fig_time_dist, use_container_width=True)
             
             with tab5:
-                # Time pattern analysis
-                if len(filtered_df) > 0:
-                    # Extract hour and day of week
-                    filtered_df['Hour'] = filtered_df['Overlap Start'].dt.hour
-                    filtered_df['Day of Week'] = filtered_df['Overlap Start'].dt.day_name()
-                    filtered_df['Day Number'] = filtered_df['Overlap Start'].dt.dayofweek
+                # Coverage analysis
+                st.subheader("Coverage Impact")
+                
+                # Calculate simultaneous lunch periods
+                both_lunch_df = filtered_df[filtered_df['Overlap Type'] == 'Both on Lunch']
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric("Simultaneous Lunch Periods", len(both_lunch_df))
+                    st.metric("Total Time Both on Lunch", 
+                             f"{int(both_lunch_df['Duration (seconds)'].sum()//3600)}h {int((both_lunch_df['Duration (seconds)'].sum()%3600)//60)}m")
                     
-                    # Create two columns for the visualizations
-                    col1, col2 = st.columns(2)
+                    if len(both_lunch_df) > 0:
+                        avg_both_lunch = both_lunch_df['Duration (seconds)'].mean() / 60
+                        st.metric("Average Simultaneous Lunch", f"{avg_both_lunch:.1f} min")
+                
+                with col2:
+                    # Coverage risk by hour
+                    coverage_risk = both_lunch_df.groupby('Hour')['Duration (seconds)'].count()
+                    if len(coverage_risk) > 0:
+                        fig_risk = px.bar(x=coverage_risk.index, y=coverage_risk.values,
+                                        title="Coverage Risk by Hour (Both Agents on Lunch)",
+                                        labels={'x': 'Hour', 'y': 'Number of Incidents'},
+                                        color=coverage_risk.values,
+                                        color_continuous_scale='Reds')
+                        fig_risk.update_xaxes(dtick=1)
+                        st.plotly_chart(fig_risk, use_container_width=True)
+                    else:
+                        st.info("No periods found where both agents were simultaneously on lunch.")
+                
+                # Recommendations
+                st.subheader("Coverage Recommendations")
+                if len(both_lunch_df) > 0:
+                    peak_risk_hour = both_lunch_df.groupby('Hour')['Duration (seconds)'].count().idxmax()
+                    st.warning(f"⚠️ **High Risk Period**: {peak_risk_hour:02d}:00-{peak_risk_hour:02d}:59 has the most simultaneous lunch overlaps")
                     
-                    with col1:
-                        # Hourly distribution
-                        hourly_stats = filtered_df.groupby('Hour').agg({
-                            'Duration (seconds)': ['count', 'sum']
-                        }).reset_index()
-                        hourly_stats.columns = ['Hour', 'Count', 'Total Seconds']
-                        hourly_stats['Total Minutes'] = hourly_stats['Total Seconds'] / 60
-                        
-                        fig_hour = go.Figure()
-                        fig_hour.add_trace(go.Bar(
-                            x=hourly_stats['Hour'],
-                            y=hourly_stats['Count'],
-                            name='Number of Overlaps',
-                            yaxis='y',
-                            offsetgroup=1
-                        ))
-                        fig_hour.add_trace(go.Scatter(
-                            x=hourly_stats['Hour'],
-                            y=hourly_stats['Total Minutes'],
-                            name='Total Minutes',
-                            yaxis='y2',
-                            line=dict(color='red', width=3)
-                        ))
-                        
-                        fig_hour.update_layout(
-                            title='Overlaps by Hour of Day',
-                            xaxis=dict(title='Hour of Day', dtick=1),
-                            yaxis=dict(title='Number of Overlaps', side='left'),
-                            yaxis2=dict(title='Total Minutes', overlaying='y', side='right'),
-                            hovermode='x unified',
-                            height=400
-                        )
-                        st.plotly_chart(fig_hour, use_container_width=True)
+                    # Most problematic agent pairs
+                    problematic_pairs = both_lunch_df.groupby(['Agent 1', 'Agent 2'])['Duration (seconds)'].agg(['count', 'sum']).reset_index()
+                    problematic_pairs.columns = ['Agent 1', 'Agent 2', 'Incidents', 'Total Duration']
+                    problematic_pairs = problematic_pairs.sort_values('Incidents', ascending=False).head(5)
                     
-                    with col2:
-                        # Day of week distribution
-                        day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                        daily_stats = filtered_df.groupby(['Day of Week', 'Day Number']).agg({
-                            'Duration (seconds)': ['count', 'sum']
-                        }).reset_index()
-                        daily_stats.columns = ['Day of Week', 'Day Number', 'Count', 'Total Seconds']
-                        daily_stats['Total Minutes'] = daily_stats['Total Seconds'] / 60
-                        daily_stats = daily_stats.sort_values('Day Number')
-                        
-                        fig_day = go.Figure()
-                        fig_day.add_trace(go.Bar(
-                            x=daily_stats['Day of Week'],
-                            y=daily_stats['Count'],
-                            name='Number of Overlaps',
-                            text=daily_stats['Count'],
-                            textposition='auto',
-                        ))
-                        
-                        fig_day.update_layout(
-                            title='Overlaps by Day of Week',
-                            xaxis=dict(title='Day of Week', categoryorder='array', categoryarray=day_order),
-                            yaxis=dict(title='Number of Overlaps'),
-                            height=400
-                        )
-                        st.plotly_chart(fig_day, use_container_width=True)
-                    
-                    # Heatmap of hour vs day of week
-                    st.subheader("Overlap Intensity Heatmap")
-                    
-                    # Create pivot table for heatmap
-                    heatmap_data = filtered_df.groupby(['Day Number', 'Day of Week', 'Hour'])['Duration (seconds)'].count().reset_index()
-                    heatmap_data.columns = ['Day Number', 'Day of Week', 'Hour', 'Count']
-                    
-                    # Create complete grid (all hours and days)
-                    all_hours = list(range(24))
-                    all_days = [(i, day) for i, day in enumerate(day_order)]
-                    
-                    # Create pivot table
-                    pivot_data = pd.DataFrame(index=[d[1] for d in all_days], columns=all_hours)
-                    for _, row in heatmap_data.iterrows():
-                        pivot_data.loc[row['Day of Week'], row['Hour']] = row['Count']
-                    pivot_data = pivot_data.fillna(0)
-                    
-                    fig_heatmap = px.imshow(
-                        pivot_data.values,
-                        labels=dict(x="Hour of Day", y="Day of Week", color="Number of Overlaps"),
-                        x=all_hours,
-                        y=day_order,
-                        color_continuous_scale="YlOrRd",
-                        aspect="auto",
-                        title="Overlap Frequency by Day and Hour"
-                    )
-                    
-                    fig_heatmap.update_xaxes(dtick=1)
-                    fig_heatmap.update_layout(height=400)
-                    st.plotly_chart(fig_heatmap, use_container_width=True)
-                    
-                    # Peak times summary
-                    st.subheader("Peak Overlap Times")
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Top 5 busiest hours
-                        if len(hourly_stats) > 0:
-                            top_hours = hourly_stats.nlargest(min(5, len(hourly_stats)), 'Count')[['Hour', 'Count', 'Total Minutes']]
-                            top_hours['Time'] = top_hours['Hour'].apply(lambda h: f"{h:02d}:00 - {h:02d}:59")
-                            st.markdown("**Top 5 Busiest Hours:**")
-                            for _, row in top_hours.iterrows():
-                                st.markdown(f"• {row['Time']}: {row['Count']} overlaps ({row['Total Minutes']:.0f} min)")
-                        else:
-                            st.markdown("**Top 5 Busiest Hours:**")
-                            st.markdown("No data available")
-                    
-                    with col2:
-                        # Average by day type
-                        filtered_df['Is Weekend'] = filtered_df['Day Number'].isin([5, 6])
-                        weekend_stats = filtered_df.groupby('Is Weekend')['Duration (seconds)'].agg(['count', 'mean'])
-                        
-                        st.markdown("**Weekday vs Weekend:**")
-                        weekday_count = weekend_stats.loc[False, 'count'] if False in weekend_stats.index else 0
-                        weekend_count = weekend_stats.loc[True, 'count'] if True in weekend_stats.index else 0
-                        weekday_avg = weekend_stats.loc[False, 'mean'] / 60 if False in weekend_stats.index else 0
-                        weekend_avg = weekend_stats.loc[True, 'mean'] / 60 if True in weekend_stats.index else 0
-                        
-                        st.markdown(f"• Weekdays: {weekday_count} overlaps (avg {weekday_avg:.1f} min)")
-                        st.markdown(f"• Weekends: {weekend_count} overlaps (avg {weekend_avg:.1f} min)")
+                    st.markdown("**Most Frequent Simultaneous Lunch Pairs:**")
+                    for _, row in problematic_pairs.iterrows():
+                        minutes = row['Total Duration'] / 60
+                        st.markdown(f"• {row['Agent 1']} & {row['Agent 2']}: {row['Incidents']} incidents ({minutes:.0f} min total)")
                 else:
-                    st.info("No data available for time pattern analysis after applying filters.")
+                    st.success("No periods found where multiple agents were simultaneously on lunch")
             
             # Detailed table
-            st.header("Overlap Table")
+            st.header("Lunch Overlap Details")
             
             # Format the display dataframe
-            display_df = filtered_df[[
+            display_columns = [
                 'Agent 1', 'Agent 2', 'Overlap Start', 'Overlap End', 
-                'Duration (formatted)', 'Agent 1 Reason', 'Agent 2 Reason'
-            ]].sort_values('Overlap Start', ascending=False)
+                'Duration (formatted)', 'Agent 1 Reason', 'Agent 2 Reason', 'Overlap Type'
+            ]
+            display_df = filtered_df[display_columns].sort_values('Overlap Start', ascending=False)
             
             st.dataframe(display_df, use_container_width=True, hide_index=True)
             
             # Download option
             csv = display_df.to_csv(index=False)
             st.download_button(
-                label="Download Overlap Report as CSV",
+                label="Download Lunch Overlap Report as CSV",
                 data=csv,
-                file_name=f"agent_overlaps_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"lunch_overlaps_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
             
         else:
-            st.info("No overlapping 'Not Ready' periods found between agents.")
+            st.info("No overlapping periods found where at least one agent was on lunch.")
+            
+            # Show available reason codes for debugging
+            if len(not_ready_df) > 0:
+                st.subheader("Available Reason Codes in Data")
+                reason_codes = not_ready_df['REASON CODE'].value_counts()
+                st.dataframe(reason_codes.reset_index().rename(columns={'index': 'Reason Code', 'REASON CODE': 'Count'}))
+                st.markdown("**Tip**: Check if your lunch reason codes match those in the data. You can modify them in the sidebar.")
     else:
         st.warning("No 'Not Ready' states found in the uploaded file.")
         
 else:
     # Instructions when no file is uploaded
     st.info("""
-    ### How to use this tool:
+    ### How to use this Lunch Overlap  :
     
     1. **Upload your CSV file** containing agent state data
     
@@ -393,10 +463,5 @@ else:
     - REASON CODE
     - AGENT STATE TIME (format: HH:MM:SS)
     - AGENT
-    
-    ### What this tool analyzes:
-    - Simultaneous "Not Ready" states between different agents
-    - Duration and frequency of overlaps
-    - Patterns by agent, time, and reason codes
-    - Time-based patterns showing when overlaps occur most frequently
+
     """)
